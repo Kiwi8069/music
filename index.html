@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme:light)">
+<meta name="theme-color" content="#15171a" media="(prefers-color-scheme:dark)">
+<title>CD 音樂庫</title>
+<!-- 每次更新網站都要換 v= 後面的版本，瀏覽器才不會用到舊檔 -->
+<script src="config.js?v=20261123-1"></script>
+<style>
+:root{
+  --bg:#f3f1ec;--panel:#fff;--text:#1c1d20;--muted:#6d6c68;--line:#dedbd3;--soft:#e9e6de;--accent:#b4371f;--on-accent:#fff;--danger:#b3261e;
+  --shadow:0 1px 2px rgba(30,25,15,.12),0 6px 18px rgba(30,25,15,.08);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#15171a;--panel:#1e2125;--text:#ebe9e4;--muted:#97958f;--line:#32363c;--soft:#282c31;--accent:#f0785c;--on-accent:#1a0d09;--danger:#ff8a80;
+  --shadow:0 1px 2px rgba(0,0,0,.5),0 6px 18px rgba(0,0,0,.35);
+}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 "Segoe UI","Microsoft JhengHei UI","PingFang TC",system-ui,sans-serif;padding-bottom:env(safe-area-inset-bottom)}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.hidden{display:none!important}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 12px;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.btn:disabled{opacity:.5;cursor:default}
+input,select,textarea{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 10px;min-width:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+svg{display:block;fill:currentColor}
+
+/* 登入 */
+#login{min-height:100vh;display:grid;place-items:center;padding:16px}
+.login-box{background:var(--panel);padding:28px;border-radius:14px;box-shadow:var(--shadow);width:100%;max-width:340px}
+.login-box h1{margin:0 0 4px;font-size:22px}
+.login-box p{margin:0 0 14px;color:var(--muted);font-size:13px}
+.login-box label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+.login-box input{width:100%;padding:10px;font-size:16px}
+.login-box .btn{width:100%;margin-top:18px;padding:10px}
+.err{color:var(--danger);font-size:13px;min-height:20px;margin-top:8px}
+
+/* 表頭 */
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.wrap{max-width:1360px;margin:0 auto;padding:0 20px}
+.bar{display:flex;align-items:center;gap:10px;padding-top:8px;padding-bottom:4px}
+.bar h1{font-size:17px;margin:0;white-space:nowrap}
+.bar .sum{color:var(--muted);font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who{color:var(--muted);font-size:13px;white-space:nowrap}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:4px;padding-bottom:8px}
+.tools .search{flex:1 1 220px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;background:none;padding:6px 12px;font-size:14px}
+.seg button.on{background:var(--text);color:var(--bg)}
+main.wrap{padding-top:16px;padding-bottom:130px}
+.count{color:var(--muted);font-size:13px;margin-bottom:10px}
+
+/* 畫廊 */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:22px 18px}
+.card{cursor:pointer;min-width:0;border:0;background:none;padding:0;text-align:left;display:block}
+/* CD 盒：左側書背 */
+.case{position:relative;aspect-ratio:1.09/1;border-radius:4px;overflow:hidden;box-shadow:var(--shadow);background:#26282b;padding-left:7.5%}
+.case::before{content:"";position:absolute;inset:0 auto 0 0;width:7.5%;background:linear-gradient(90deg,#4a4d51,#1d1f21 45%,#36393c 82%,#0f1011)}
+.case .art{width:100%;height:100%;display:block;object-fit:cover}
+.case::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,rgba(255,255,255,.14),transparent 32%);pointer-events:none}
+.ph{width:100%;height:100%;display:flex;align-items:flex-end;padding:10px;color:#fff;font-weight:700;font-size:14px;line-height:1.3;overflow:hidden}
+.play-fab{position:absolute;right:8px;bottom:8px;width:42px;height:42px;border-radius:50%;border:0;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;z-index:1;opacity:0;transform:translateY(4px);transition:.15s}
+.card:hover .play-fab,.play-fab:focus-visible{opacity:1;transform:none}
+.flags{position:absolute;top:6px;right:6px;display:flex;gap:4px;z-index:1}
+.flag{background:rgba(0,0,0,.72);color:#fff;font-size:11px;padding:1px 7px;border-radius:5px}
+.flag.warn{background:#8f5a00}
+.card .t{font-weight:600;font-size:14px;line-height:1.35;margin-top:9px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .a{color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card.playing .t{color:var(--accent)}
+
+/* 表格 */
+.table-wrap{overflow-x:auto;background:var(--panel);border-radius:10px;border:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:7px 12px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+tbody tr:last-child td{border-bottom:0}
+th{color:var(--muted);font-weight:600;font-size:13px}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--soft)}
+td.num{font-variant-numeric:tabular-nums;text-align:right}
+tr.playing td{color:var(--accent)}
+.mini{width:36px;height:36px;border-radius:3px;object-fit:cover;display:block;overflow:hidden}
+.mini.ph{padding:0}
+.empty{text-align:center;color:var(--muted);padding:70px 16px}
+
+/* 演唱人 */
+.artists{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.artist{display:flex;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;text-align:left;min-width:0}
+.artist:hover{border-color:var(--muted)}
+.artist .mini{width:52px;height:52px;flex:none}
+.artist b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artist span{color:var(--muted);font-size:13px}
+.artist>div{min-width:0}
+
+/* 專輯頁 */
+.modal{position:fixed;inset:0;background:rgba(10,9,7,.55);display:grid;place-items:center;padding:16px;z-index:20}
+.dialog{background:var(--panel);border-radius:14px;width:100%;max-width:900px;max-height:calc(100dvh - 32px);overflow:auto;box-shadow:0 12px 50px rgba(0,0,0,.4)}
+.alb{display:grid;grid-template-columns:270px minmax(0,1fr);gap:24px;padding:22px}
+.alb .case{border-radius:5px}
+.alb h2{margin:0 0 2px;font-size:22px;line-height:1.3}
+.alb .by{font-size:16px;color:var(--muted);border:0;background:none;padding:0;text-align:left}
+.alb .by:hover{color:var(--accent)}
+.alb-top{display:flex;gap:8px;justify-content:flex-end;padding:12px 14px 0}
+.acts{display:flex;gap:8px;margin:14px 0;flex-wrap:wrap}
+dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 14px;font-size:13px;margin:16px 0 0}
+dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+.tracks{list-style:none;margin:0;padding:0}
+.tracks li{display:grid;grid-template-columns:32px minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:7px 6px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:4px}
+.tracks li:hover{background:var(--soft)}
+.tracks li.playing{color:var(--accent)}
+.tracks .no{color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;font-size:13px}
+.tracks .nm{font-weight:500;overflow-wrap:anywhere}
+.tracks .cr{font-size:12.5px;color:var(--muted)}
+.tracks .du{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.ic{border:0;background:none;width:34px;height:34px;display:grid;place-items:center;border-radius:50%;color:inherit;flex:none;padding:0}
+.ic:hover{background:var(--soft)}
+.ic.on{color:var(--accent)}
+.ver{color:var(--muted);font-size:12px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px 22px}
+.form-grid label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.form-grid input,.form-grid textarea{color:var(--text)}
+.form-grid .wide{grid-column:1/-1}
+.dlg-head{padding:16px 22px 0;font-size:18px;font-weight:600}
+.dlg-foot{display:flex;gap:8px;justify-content:flex-end;padding:12px 22px 18px}
+
+body.has-player .modal{padding-bottom:96px}
+body.has-player .dialog{max-height:calc(100dvh - 112px)}
+/* 播放列 */
+#player{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -4px 18px rgba(0,0,0,.08)}
+.seek{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;height:18px;background:none;border:0;padding:0;width:100%;cursor:pointer;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(90deg,var(--accent) var(--p,0%),var(--line) var(--p,0%))}
+input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:linear-gradient(90deg,var(--accent) var(--p,0%),var(--line) var(--p,0%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--accent);margin-top:-4.5px;border:0}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--accent);border:0}
+.pl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) minmax(0,1fr);align-items:center;gap:16px;padding:9px 20px;max-width:1360px;margin:0 auto}
+.now{display:flex;gap:11px;align-items:center;min-width:0;border:0;background:none;text-align:left;padding:0}
+.now .mini{width:48px;height:48px;flex:none}
+.now>div:last-child{min-width:0}
+.now b,.now span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.now span{font-size:13px;color:var(--muted)}
+.ctl{display:flex;justify-content:center;align-items:center;gap:6px}
+.ctl .main{width:42px;height:42px;background:var(--text);color:var(--bg)}
+.ctl .main:hover{background:var(--accent);color:var(--on-accent)}
+.side{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.side input{max-width:100px}
+.side select{padding:3px 6px;font-size:13px}
+.toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:14px;z-index:40;max-width:calc(100% - 32px)}
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-3px;opacity:.7}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+@media (hover:none){.play-fab{opacity:1;transform:none;width:34px;height:34px}}
+@media (max-width:720px){
+  .wrap{padding-left:12px;padding-right:12px}
+  .who{display:none}
+  .grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 10px}
+  .card .t{font-size:12px;margin-top:6px}.card .a{font-size:11.5px}
+  .flag{font-size:9.5px;padding:0 5px}
+  .play-fab{width:30px;height:30px;right:5px;bottom:5px}
+  #tabs{order:-2}#viewSeg{order:-1;margin-left:auto}
+  .tools .search{flex-basis:100%}
+  .tools select{flex:1 1 28%}
+  .modal{padding:0;place-items:end stretch}
+  .modal,body.has-player .modal{padding:0}
+  .dialog,body.has-player .dialog{max-height:94dvh;border-radius:14px 14px 0 0}
+  body.has-player .dialog{padding-bottom:110px}
+  .alb{grid-template-columns:1fr;gap:16px;padding:14px 16px}
+  .alb .left{display:grid;grid-template-columns:130px minmax(0,1fr);gap:14px;align-items:start}
+  .alb dl{margin:0;font-size:12px}
+  .form-grid{grid-template-columns:1fr}
+  .pl{grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:6px 12px}
+  .pl .mid{display:contents}
+  .seek{grid-column:1/-1;grid-row:2}
+  .side{display:none}
+  .now .mini{width:40px;height:40px}.now b{font-size:14px}.now span{font-size:12px}
+  .ctl .opt{display:none}
+  main.wrap{padding-bottom:120px}
+}
+</style>
+</head>
+<body>
+
+<section id="login" class="hidden">
+  <form class="login-box" id="loginForm">
+    <h1 data-title>CD 音樂庫</h1>
+    <p>輸入名稱和 PIN 登入</p>
+    <label for="lgName">名稱</label>
+    <input id="lgName" autocomplete="username" required>
+    <label for="lgPin">PIN</label>
+    <input id="lgPin" type="password" inputmode="numeric" autocomplete="current-password" required>
+    <button class="btn primary" id="lgBtn">登入</button>
+    <div class="err" id="lgErr" role="alert"></div>
+  </form>
+</section>
+
+<section id="app" class="hidden">
+  <header>
+    <div class="wrap bar">
+      <h1 data-title>CD 音樂庫</h1>
+      <span class="sum" id="sum"></span>
+      <span class="who" id="who"></span>
+      <button class="btn hidden" id="syncBtn" title="立刻匯入剛抓好的 CD">同步</button>
+      <button class="btn" id="refreshBtn" title="重新載入" aria-label="重新載入">↻</button>
+      <button class="btn" id="logoutBtn">登出</button>
+    </div>
+    <div class="wrap tools">
+      <div class="seg" id="tabs"><button data-t="albums">專輯</button><button data-t="artists">演唱人</button><button data-t="songs">歌曲</button></div>
+      <input class="search" id="search" type="search" placeholder="搜尋專輯、演唱人、歌名、作曲…" aria-label="搜尋">
+      <select id="fGenre" aria-label="類型"></select>
+      <select id="fYear" aria-label="年代"></select>
+      <select id="sort" aria-label="排序">
+        <option value="new">最近建檔</option><option value="artist">依演唱人</option><option value="title">依名稱</option><option value="yearD">年份新到舊</option><option value="yearA">年份舊到新</option>
+      </select>
+      <div class="seg" id="viewSeg"><button data-v="grid" title="畫廊">畫廊</button><button data-v="table" title="表格">表格</button></div>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="count" id="count"></div>
+    <div id="content"></div>
+  </main>
+</section>
+
+<div class="modal hidden" id="modal"><div class="dialog" id="dialog" role="dialog" aria-modal="true"></div></div>
+
+<section id="player" class="hidden" aria-label="播放器">
+  <div class="pl">
+    <button class="now" id="now"></button>
+    <div class="mid">
+      <div class="ctl">
+        <button class="ic opt" id="shufBtn" title="隨機播放" aria-label="隨機播放"></button>
+        <button class="ic" id="prevBtn" title="上一首" aria-label="上一首"></button>
+        <button class="ic main" id="playBtn" title="播放／暫停" aria-label="播放／暫停"></button>
+        <button class="ic" id="nextBtn" title="下一首" aria-label="下一首"></button>
+        <button class="ic opt" id="repBtn" title="重複播放" aria-label="重複播放"></button>
+      </div>
+      <div class="seek"><span id="curT">0:00</span><input type="range" id="seek" min="0" max="1000" value="0" aria-label="播放位置"><span id="durT">0:00</span></div>
+    </div>
+    <div class="side">
+      <select id="quality" aria-label="音質"><option value="mp3">快速（MP3）</option><option value="flac">無損（FLAC）</option></select>
+      <input type="range" id="vol" min="0" max="100" aria-label="音量">
+    </div>
+  </div>
+</section>
+<div class="toast hidden" id="toast" role="status"></div>
+<audio id="audio" preload="auto"></audio>
+
+<script>
+(function () {
+'use strict';
+const CFG = Object.assign({ API_URL: '', TITLE: 'CD 音樂庫' }, window.APP_CONFIG || {});
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const LS = {
+  get(k) { try { return localStorage.getItem('cdl_' + k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem('cdl_' + k, v); } catch (e) {} },
+  del(k) { try { localStorage.removeItem('cdl_' + k); } catch (e) {} }
+};
+const ICON = {
+  play: 'M8 5v14l11-7z', pause: 'M7 5h4v14H7zm6 0h4v14h-4z', prev: 'M6 5h2v14H6zm3.5 7L19 5v14z', next: 'M16 5h2v14h-2zM5 5l9.5 7L5 19z',
+  shuf: 'M17 4l4 4-4 4V9h-2.2l-2.4 3.2-1.3-1.8L13.8 7H17zM3 7h4.2l6.6 9H17v-3l4 4-4 4v-3h-4.2L6.2 9H3zm0 9h3.2l1.7-2.3 1.2 1.7L7.2 18H3z',
+  rep: 'M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z', add: 'M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z'
+};
+const icon = (n, s) => `<svg viewBox="0 0 24 24" width="${s || 22}" height="${s || 22}" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const mmss = s => { s = Math.max(0, Math.round(+s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = String(s % 60).padStart(2, '0'); return h ? `${h}:${String(m).padStart(2, '0')}:${x}` : `${m}:${x}`; };
+const coverUrl = (id, w) => /^https?:|^\//.test(id) ? id : `https://lh3.googleusercontent.com/d/${encodeURIComponent(id)}=w${w}`;
+const hue = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+const ph = (a, cls) => `<div class="ph ${cls || ''}" style="background:hsl(${hue(a.演唱人 + a.專輯名稱)} 32% 38%)">${cls ? '' : esc(a.專輯名稱 || '未命名')}</div>`;
+const art = (a, w, cls) => a && a.封面ID ? `<img class="${cls || 'art'}" src="${esc(coverUrl(a.封面ID, w))}" alt="" loading="lazy" referrerpolicy="no-referrer" data-aid="${esc(a.專輯ID)}" data-cls="${cls || ''}">` : ph(a || { 演唱人: '', 專輯名稱: '' }, cls || '');
+const collate = (a, b) => String(a || '').localeCompare(String(b || ''), 'zh-Hant', { numeric: true });
+
+const S = { token: LS.get('token'), user: null, albums: [], tracks: [], byId: {}, tab: LS.get('tab') || 'albums', view: LS.get('view') || 'grid', sort: LS.get('sort') || 'new', q: '', genre: '', year: '', artist: '' };
+document.querySelectorAll('[data-title]').forEach(e => { e.textContent = CFG.TITLE; });
+document.title = CFG.TITLE;
+
+function toast(msg, ms) {
+  const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add('hidden'), ms || 3000);
+}
+// 封面載入失敗時換成文字封面
+document.addEventListener('error', e => {
+  const i = e.target;
+  if (i.tagName === 'IMG' && i.dataset.aid) { const a = S.byId[i.dataset.aid]; if (a) i.outerHTML = ph(a, i.dataset.cls); }
+}, true);
+
+/* ---------------- API ---------------- */
+async function api(action, payload, signal) {
+  const res = await fetch(CFG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ action, token: S.token }, payload || {})), signal });
+  if (!res.ok) throw new Error('伺服器沒有回應（' + res.status + '）');
+  const j = await res.json();
+  if (!j.ok) {
+    if (j.code === 'AUTH') logout(true);
+    const err = new Error(j.error || '發生錯誤'); err.code = j.code || 'API';
+    throw err;
+  }
+  return j;
+}
+
+/* ---------------- 登入 ---------------- */
+function showLogin(msg) {
+  $('#app').classList.add('hidden'); $('#login').classList.remove('hidden');
+  $('#lgErr').textContent = msg || (CFG.API_URL ? '' : '網站還沒有設定 API_URL');
+  setTimeout(() => $('#lgName').focus(), 0);
+}
+$('#loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const b = $('#lgBtn'); b.disabled = true; b.innerHTML = '<span class="spinner"></span>'; $('#lgErr').textContent = '';
+  try {
+    const r = await api('login', { name: $('#lgName').value, pin: $('#lgPin').value });
+    S.token = r.token; LS.set('token', r.token); $('#lgPin').value = '';
+    await load();
+  } catch (err) { $('#lgErr').textContent = err.message; }
+  finally { b.disabled = false; b.textContent = '登入'; }
+});
+function logout(expired) {
+  if (!expired && S.token) api('logout').catch(() => {});
+  S.token = null; S.albums = []; S.tracks = []; LS.del('token');
+  P.stop(); closeModal(); showLogin(expired ? '登入已過期，請重新登入' : '');
+}
+$('#logoutBtn').onclick = () => logout(false);
+
+async function load() {
+  const r = await api('library');
+  S.user = r.user; S.editable = r.editable; S.albums = r.albums; S.tracks = r.tracks;
+  S.byId = {};
+  S.albums.forEach((a, i) => { S.byId[a.專輯ID] = a; a._i = i; a.tracks = []; });
+  S.tracks.forEach(t => { const a = S.byId[t.專輯ID]; if (a) { t.album = a; a.tracks.push(t); } });
+  S.tracks = S.tracks.filter(t => t.album);
+  S.albums.forEach(a => {
+    a.tracks.sort((x, y) => x.曲序 - y.曲序);
+    a._secs = a.tracks.reduce((n, t) => n + (+t.秒數 || 0), 0);
+    a._hay = [a.專輯名稱, a.演唱人, a.類型, a.唱片公司, a.型號, a.條碼, a.年份, a.備註, a.收藏位置].concat(a.tracks.flatMap(t => [t.歌名, t.演唱人, t.作曲, t.作詞, t.編曲])).join(' ').toLowerCase();
+  });
+  S.tracks.forEach(t => { t._hay = [t.歌名, t.演唱人, t.作曲, t.作詞, t.編曲, t.album.專輯名稱, t.album.演唱人].join(' ').toLowerCase(); });
+  $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  $('#who').textContent = S.user.name; $('#syncBtn').classList.toggle('hidden', !S.user.canEdit);
+  const secs = S.albums.reduce((n, a) => n + a._secs, 0);
+  $('#sum').textContent = `${S.albums.length} 片 CD・${S.tracks.length} 首・${Math.floor(secs / 3600)} 小時 ${Math.floor(secs % 3600 / 60)} 分`;
+  const opts = (label, list) => `<option value="">${label}</option>` + list.map(x => `<option>${esc(x)}</option>`).join('');
+  $('#fGenre').innerHTML = opts('所有類型', [...new Set(S.albums.flatMap(a => splitMulti(a.類型)))].sort(collate));
+  $('#fYear').innerHTML = opts('所有年代', [...new Set(S.albums.map(decade).filter(Boolean))].sort().reverse());
+  S.genre = S.year = '';
+  render();
+}
+const splitMulti = v => String(v || '').split(/\s*[、;；,，]\s*/).filter(Boolean);
+const decade = a => /^\d{4}/.test(a.年份) ? a.年份.slice(0, 3) + '0 年代' : '';
+$('#refreshBtn').onclick = () => load().then(() => toast('已重新載入')).catch(e => toast(e.message));
+$('#syncBtn').onclick = async e => {
+  const b = e.currentTarget; b.disabled = true; b.innerHTML = '<span class="spinner"></span> 同步中';
+  try {
+    let r, add = 0, upd = 0;
+    do { r = await api('sync'); add += r.added; upd += r.updated; } while (r.more);
+    await load();
+    toast(`新增 ${add} 片、更新 ${upd} 片` + (r.pending ? `；${r.pending} 片的音樂檔還在上傳，稍後會自動補上` : ''), 5000);
+  } catch (err) { toast(err.message, 5000); }
+  finally { b.disabled = false; b.textContent = '同步'; }
+};
+
+/* ---------------- 篩選 ---------------- */
+function match(hay) { return !S.q || S.q.split(/\s+/).every(w => hay.includes(w)); }
+function okAlbum(a) { return (!S.genre || splitMulti(a.類型).includes(S.genre)) && (!S.year || decade(a) === S.year) && (!S.artist || a.演唱人 === S.artist); }
+function sortAlbums(list) {
+  const f = {
+    new: (a, b) => collate(b.建檔日期, a.建檔日期) || b._i - a._i,
+    artist: (a, b) => collate(a.演唱人, b.演唱人) || collate(a.年份, b.年份) || a.碟號 - b.碟號,
+    title: (a, b) => collate(a.專輯名稱, b.專輯名稱) || a.碟號 - b.碟號,
+    yearD: (a, b) => collate(b.年份, a.年份), yearA: (a, b) => collate(a.年份 || '9999', b.年份 || '9999')
+  }[S.sort];
+  return list.slice().sort(f);
+}
+const albumsNow = () => sortAlbums(S.albums.filter(a => okAlbum(a) && match(a._hay)));
+function songsNow() {
+  const list = S.tracks.filter(t => okAlbum(t.album) && match(t._hay));
+  const order = new Map(sortAlbums(S.albums).map((a, i) => [a, i]));
+  return S.sort === 'title' ? list.sort((a, b) => collate(a.歌名, b.歌名)) : list.sort((a, b) => order.get(a.album) - order.get(b.album) || a.曲序 - b.曲序);
+}
+
+/* ---------------- 畫面 ---------------- */
+let shown = [], limit = 200;
+function render() {
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === S.tab));
+  document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === S.view));
+  $('#viewSeg').classList.toggle('hidden', S.tab !== 'albums');
+  $('#sort').value = S.sort;
+  const c = $('#content');
+  if (!S.albums.length) { $('#count').textContent = ''; c.innerHTML = '<div class="empty">還沒有專輯。用電腦程式抓好第一片 CD，再按「同步」。</div>'; return; }
+  const filt = S.artist ? `<button class="btn" id="clearArtist">演唱人：${esc(S.artist)} ✕</button> ` : '';
+  if (S.tab === 'artists') {
+    const m = new Map();
+    S.albums.filter(a => okAlbum(a) && match(a._hay)).forEach(a => { const k = a.演唱人 || '（未填）'; m.has(k) ? m.get(k).push(a) : m.set(k, [a]); });
+    shown = [...m].sort((a, b) => collate(a[0], b[0]));
+    $('#count').innerHTML = `${shown.length} 位演唱人`;
+    c.innerHTML = `<div class="artists">${shown.map(([n, as], i) => `<button class="artist" data-i="${i}">${art(as[0], 120, 'mini')}<div><b>${esc(n)}</b><span>${as.length} 片・${as.reduce((s, a) => s + a.tracks.length, 0)} 首</span></div></button>`).join('')}</div>`;
+  } else if (S.tab === 'songs') {
+    shown = songsNow();
+    $('#count').innerHTML = filt + `${shown.length} 首` + (shown.length ? ' <button class="btn" id="playAll">全部播放</button>' : '');
+    c.innerHTML = shown.length ? `<div class="table-wrap"><table><thead><tr><th></th><th>歌名</th><th>演唱人</th><th>作曲</th><th>專輯</th><th>長度</th></tr></thead><tbody>${shown.slice(0, limit).map((t, i) => `<tr data-i="${i}" data-key="${esc(key(t))}"><td>${art(t.album, 80, 'mini')}</td><td>${esc(t.歌名)}</td><td>${esc(t.演唱人)}</td><td>${esc(t.作曲)}</td><td>${esc(t.album.專輯名稱)}</td><td class="num">${mmss(t.秒數)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">沒有符合的歌曲</div>';
+  } else {
+    shown = albumsNow();
+    $('#count').innerHTML = filt + (shown.length === S.albums.length ? `共 ${shown.length} 片` : `顯示 ${shown.length} / ${S.albums.length} 片`);
+    const part = shown.slice(0, limit);
+    if (!shown.length) c.innerHTML = '<div class="empty">沒有符合的專輯</div>';
+    else if (S.view === 'table') c.innerHTML = `<div class="table-wrap"><table><thead><tr><th></th><th>專輯名稱</th><th>演唱人</th><th>年份</th><th>類型</th><th>唱片公司</th><th>型號</th><th>碟</th><th>曲數</th><th>長度</th><th>收藏位置</th><th>狀態</th></tr></thead><tbody>${part.map((a, i) => `<tr data-i="${i}" data-alb="${esc(a.專輯ID)}"><td>${art(a, 80, 'mini')}</td><td>${esc(a.專輯名稱)}</td><td>${esc(a.演唱人)}</td><td>${esc(a.年份)}</td><td>${esc(a.類型)}</td><td>${esc(a.唱片公司)}</td><td>${esc(a.型號)}</td><td class="num">${+a.總碟數 > 1 ? esc(a.碟號 + '/' + a.總碟數) : ''}</td><td class="num">${a.tracks.length}</td><td class="num">${mmss(a._secs)}</td><td>${esc(a.收藏位置)}</td><td>${esc(a.狀態)}</td></tr>`).join('')}</tbody></table></div>`;
+    else c.innerHTML = `<div class="grid">${part.map((a, i) => `<div class="card" role="button" tabindex="0" data-i="${i}" data-alb="${esc(a.專輯ID)}"><div class="case">${art(a, 500)}<div class="flags">${+a.總碟數 > 1 ? `<span class="flag">CD ${esc(a.碟號)}</span>` : ''}${a.狀態 === '待確認' ? '<span class="flag warn">待確認</span>' : ''}</div><button class="play-fab" data-play title="播放這張專輯" aria-label="播放 ${esc(a.專輯名稱)}">${icon('play')}</button></div><div class="t">${esc(a.專輯名稱 || '（未命名）')}</div><div class="a">${esc([a.演唱人, a.年份].filter(Boolean).join('・'))}</div></div>`).join('')}</div>`;
+  }
+  mark();
+}
+// 往下捲時再顯示更多
+addEventListener('scroll', () => {
+  if (S.tab !== 'artists' && shown.length > limit && innerHeight + scrollY > document.body.offsetHeight - 900) { limit += 200; render(); }
+}, { passive: true });
+const key = t => t.專輯ID + '#' + t.曲序;
+function mark() {
+  const t = P.cur();
+  document.querySelectorAll('[data-key]').forEach(e => e.classList.toggle('playing', !!t && e.dataset.key === key(t)));
+  document.querySelectorAll('[data-alb]').forEach(e => e.classList.toggle('playing', !!t && e.dataset.alb === t.專輯ID));
+}
+function reset() { limit = 200; scrollTo(0, 0); render(); }
+$('#tabs').onclick = e => { const b = e.target.closest('button'); if (b) { S.tab = b.dataset.t; LS.set('tab', S.tab); reset(); } };
+$('#viewSeg').onclick = e => { const b = e.target.closest('button'); if (b) { S.view = b.dataset.v; LS.set('view', S.view); reset(); } };
+$('#sort').onchange = e => { S.sort = e.target.value; LS.set('sort', S.sort); reset(); };
+$('#fGenre').onchange = e => { S.genre = e.target.value; reset(); };
+$('#fYear').onchange = e => { S.year = e.target.value; reset(); };
+let qt;
+$('#search').oninput = e => { clearTimeout(qt); qt = setTimeout(() => { S.q = e.target.value.trim().toLowerCase(); reset(); }, 150); };
+$('#count').onclick = e => {
+  if (e.target.id === 'clearArtist') { S.artist = ''; reset(); }
+  if (e.target.id === 'playAll') P.play(shown, 0);
+};
+$('#content').addEventListener('click', e => {
+  const el = e.target.closest('[data-i]'); if (!el) return;
+  const i = +el.dataset.i;
+  if (S.tab === 'artists') { S.artist = shown[i][0] === '（未填）' ? '' : shown[i][0]; S.tab = 'albums'; reset(); }
+  else if (S.tab === 'songs') P.play(shown, i);
+  else if (e.target.closest('[data-play]')) P.play(shown[i].tracks, 0);
+  else openAlbum(shown[i]);
+});
+$('#content').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.classList.contains('card')) openAlbum(shown[+e.target.dataset.i]); });
+
+/* ---------------- 專輯頁 ---------------- */
+function openModal(html) { $('#dialog').innerHTML = html; $('#modal').classList.remove('hidden'); document.body.style.overflow = 'hidden'; $('#dialog').scrollTop = 0; }
+function closeModal() { $('#modal').classList.add('hidden'); document.body.style.overflow = ''; }
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal' || e.target.closest('[data-close]')) closeModal(); });
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+  if (e.code === 'Space' && !/INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName) && !e.target.classList.contains('card') && P.cur()) { e.preventDefault(); P.toggle(); }
+});
+
+function openAlbum(a) {
+  const row = (k, v) => v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '';
+  const credits = t => [t.演唱人 && t.演唱人 !== a.演唱人 ? t.演唱人 : '', t.作曲 ? '曲 ' + t.作曲 : '', t.作詞 ? '詞 ' + t.作詞 : '', t.編曲 ? '編 ' + t.編曲 : ''].filter(Boolean).join('　');
+  openModal(`<div class="alb-top">${S.user.canEdit ? '<button class="btn" id="edBtn">編輯專輯</button>' : ''}<button class="btn" data-close aria-label="關閉">✕</button></div>
+  <div class="alb"><div class="left"><div class="case">${art(a, 800)}</div>
+    <dl>${row('年份', a.年份)}${row('類型', a.類型)}${row('唱片公司', a.唱片公司)}${row('型號', a.型號)}${row('條碼', a.條碼)}${row('國家', a.國家)}${row('碟號', +a.總碟數 > 1 ? a.碟號 + ' / ' + a.總碟數 : '')}${row('長度', `${a.tracks.length} 首，${mmss(a._secs)}`)}${row('收藏位置', a.收藏位置)}${row('購入日期', a.購入日期)}${row('購入價格', a.購入價格)}${row('備註', a.備註)}${row('建檔', a.建檔日期)}${row('抓軌驗證', a.驗證)}</dl></div>
+  <div><h2>${esc(a.專輯名稱 || '（未命名）')}</h2><button class="by" id="byBtn">${esc(a.演唱人)}</button>
+    ${S.user.canPlay ? `<div class="acts"><button class="btn primary" id="plAll">播放</button><button class="btn" id="plShuf">隨機播放</button></div>` : '<p class="ver">這個帳號只能瀏覽，不能播放</p>'}
+    <ol class="tracks">${a.tracks.map((t, i) => `<li data-n="${i}" data-key="${esc(key(t))}" title="${esc(t.驗證)}"><span class="no">${esc(t.曲序)}</span><div><div class="nm">${esc(t.歌名 || 'Track ' + t.曲序)}</div><div class="cr">${esc(credits(t))}</div></div><span class="du">${mmss(t.秒數)}</span>${S.user.canEdit ? `<button class="btn" data-ed="${i}" style="padding:1px 8px;font-size:12px">編輯</button>` : '<span></span>'}</li>`).join('')}</ol></div></div>`);
+  mark();
+  $('#byBtn').onclick = () => { S.artist = a.演唱人; S.tab = 'albums'; closeModal(); reset(); };
+  if ($('#plAll')) { $('#plAll').onclick = () => P.play(a.tracks, 0); $('#plShuf').onclick = () => P.play(a.tracks, -1); }
+  $('.tracks').onclick = e => {
+    const ed = e.target.closest('[data-ed]');
+    if (ed) return editTrack(a, a.tracks[+ed.dataset.ed]);
+    const li = e.target.closest('li'); if (li) P.play(a.tracks, +li.dataset.n);
+  };
+  if ($('#edBtn')) $('#edBtn').onclick = () => editForm('編輯專輯', S.editable.album, a, v => api('updateAlbum', { id: a.專輯ID, values: v }), () => openAlbum(S.byId[a.專輯ID]));
+}
+function editTrack(a, t) {
+  editForm(`編輯第 ${t.曲序} 首`, S.editable.track, t, v => api('updateTrack', { id: a.專輯ID, no: +t.曲序, values: v }), () => openAlbum(S.byId[a.專輯ID]));
+}
+function editForm(title, fields, obj, save, back) {
+  openModal(`<form id="ef"><div class="dlg-head">${esc(title)}</div><div class="form-grid">${fields.map(f => `<label class="${/名稱|歌名|備註/.test(f) ? 'wide' : ''}">${esc(f)}${f === '備註' ? `<textarea name="${f}" rows="3">${esc(obj[f])}</textarea>` : `<input name="${esc(f)}" value="${esc(obj[f])}" ${f === '購入日期' ? 'type="date"' : ''}>`}</label>`).join('')}</div>
+    <div class="dlg-foot"><button type="button" class="btn" id="efBack">取消</button><button class="btn primary" id="efSave">儲存</button></div></form>`);
+  $('#efBack').onclick = back;
+  $('#ef').onsubmit = async e => {
+    e.preventDefault();
+    const b = $('#efSave'), vals = {};
+    fields.forEach(f => { const v = e.target.elements[f].value.trim(); if (v !== String(obj[f] || '')) vals[f] = v; });
+    if (!Object.keys(vals).length) return back();
+    b.disabled = true; b.innerHTML = '<span class="spinner"></span> 儲存中';
+    try { await save(vals); await load(); back(); toast('已儲存'); }
+    catch (err) { b.disabled = false; b.textContent = '儲存'; toast(err.message, 5000); }
+  };
+}
+
+/* ---------------- 音樂檔下載（分段讀取，最近幾首留在記憶體） ---------------- */
+const Files = (function () {
+  const CH = 2 * 1024 * 1024, cache = new Map(), KEEP = 5;
+  function b64(s) { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+  async function part(id, start, signal) {
+    for (let n = 0; ; n++) {
+      try { const r = await api('chunk', { id, start, length: CH }, signal); return { total: r.total, data: b64(r.data) }; }
+      catch (e) { if (n >= 2 || e.name === 'AbortError' || e.code === 'AUTH') throw e; await new Promise(r => setTimeout(r, 700 * (n + 1))); }
+    }
+  }
+  async function download(id, size, type, onp, signal) {
+    const n = Math.max(1, Math.ceil(size / CH)), parts = new Array(n);
+    let next = 0, done = 0, total = size;
+    async function worker() {
+      while (next < n) { const i = next++; const r = await part(id, i * CH, signal); parts[i] = r.data; total = r.total; onp(++done / n); }
+    }
+    await Promise.all(Array.from({ length: Math.min(4, n) }, worker));
+    // 檔案比登記的大（重新寫過標籤）時把剩下的補齊
+    let got = parts.reduce((s, p) => s + p.length, 0);
+    while (got < total) { const r = await part(id, got, signal); if (!r.data.length) break; parts.push(r.data); got += r.data.length; }
+    if (got !== total) throw new Error('音樂檔下載不完整');
+    return new Blob(parts, { type });
+  }
+  return {
+    get(t, q, onp) {
+      const id = q === 'flac' ? t.FLAC檔ID || t.MP3檔ID : t.MP3檔ID || t.FLAC檔ID;
+      if (!id) return Promise.reject(new Error('這首的音樂檔還在上傳到雲端，請稍後按「同步」'));
+      const flac = id === t.FLAC檔ID;
+      let c = cache.get(id);
+      if (!c) {
+        c = { ctl: new AbortController(), subs: new Set(), pct: 0 };
+        c.p = download(id, +(flac ? t.FLAC大小 : t.MP3大小) || CH, flac ? 'audio/flac' : 'audio/mpeg', f => { c.pct = f; c.subs.forEach(s => s(f)); }, c.ctl.signal)
+          .then(b => (c.url = URL.createObjectURL(b)));
+        c.p.catch(() => { if (cache.get(id) === c) cache.delete(id); });
+      }
+      cache.delete(id); cache.set(id, c);      // 移到最新
+      while (cache.size > KEEP) { const k = cache.keys().next().value, o = cache.get(k); cache.delete(k); o.ctl.abort(); if (o.url) URL.revokeObjectURL(o.url); }
+      if (onp) { c.subs.add(onp); if (c.pct) onp(c.pct); }
+      return c.p;
+    },
+    clear() { cache.forEach(o => { o.ctl.abort(); if (o.url) URL.revokeObjectURL(o.url); }); cache.clear(); }
+  };
+})();
+
+/* ---------------- 播放器 ---------------- */
+// 極短的無聲音檔：手機需要在點擊當下就開始播放，之後換成真正的音樂才不會被擋
+const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+const P = (function () {
+  const au = $('#audio');
+  let queue = [], pos = -1, order = [], shuffle = LS.get('shuf') === '1', repeat = LS.get('rep') || '', seq = 0, loading = false, dragging = false, fails = 0;
+  let quality = LS.get('quality') || 'mp3';
+  $('#quality').value = quality;
+  au.volume = (LS.get('vol') === null ? 90 : +LS.get('vol')) / 100;
+  const paintRange = (el, p) => el.style.setProperty('--p', p + '%');
+  $('#vol').value = au.volume * 100; paintRange($('#vol'), au.volume * 100);
+
+  const cur = () => queue[order[pos]];
+  function makeOrder(first) {
+    order = queue.map((_, i) => i);
+    if (shuffle) {
+      for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+      if (first >= 0) { order.splice(order.indexOf(first), 1); order.unshift(first); }
+      pos = 0;
+    } else pos = Math.max(0, first);
+  }
+  function play(list, i) {
+    if (!S.user.canPlay) return toast('這個帳號沒有播放權限');
+    if (!list.length) return;
+    queue = list.slice(); fails = 0;
+    if (i < 0) { shuffle = true; LS.set('shuf', '1'); }
+    makeOrder(i);
+    au.src = SILENCE; au.play().catch(() => {});
+    start();
+  }
+  async function start() {
+    const t = cur(); if (!t) return;
+    const my = ++seq; loading = true;
+    $('#player').classList.remove('hidden'); document.body.classList.add('has-player');
+    paint(); mark(); setMedia(t);
+    setTimes(0, +t.秒數);
+    try {
+      const url = await Files.get(t, quality, f => { if (my === seq && loading) $('#now span').textContent = `載入中 ${Math.round(f * 100)}%`; });
+      if (my !== seq) return;
+      loading = false; au.src = url;
+      await au.play();
+      fails = 0; paint();
+      const n = queue[order[pos + 1]];
+      if (n && n !== t) Files.get(n, quality).catch(() => {});     // 先載下一首
+    } catch (e) {
+      if (my !== seq || e.name === 'AbortError') return;
+      loading = false; paint();
+      if (e.name === 'NotAllowedError') return toast('請按一下播放鍵開始播放');
+      if (e.code === 'AUTH') return;
+      toast((t.歌名 || '') + '：' + e.message, 5000);
+      if (++fails < 3 && pos + 1 < order.length) setTimeout(() => { if (my === seq) go(1); }, 1500);
+    }
+  }
+  function go(d, auto) {
+    if (!queue.length) return;
+    if (auto && repeat === 'one') { au.currentTime = 0; au.play(); return; }
+    if (d < 0 && au.currentTime > 4 && !loading) { au.currentTime = 0; return; }
+    let n = pos + d;
+    if (n >= order.length) { if (!repeat) { if (!auto) toast('已經是最後一首'); paint(); return; } if (shuffle) makeOrder(-1); n = 0; }
+    if (n < 0) n = repeat ? order.length - 1 : 0;
+    pos = n; au.pause(); start();
+  }
+  function toggle() {
+    if (loading) return;
+    if (!au.src || au.src.startsWith('data:')) return start();
+    au.paused ? au.play().catch(e => toast(e.message)) : au.pause();
+  }
+  function stop() { seq++; loading = false; au.pause(); au.removeAttribute('src'); queue = []; pos = -1; Files.clear(); $('#player').classList.add('hidden'); document.body.classList.remove('has-player'); }
+  function paint() {
+    const t = cur(); if (!t) return;
+    $('#now').innerHTML = `${art(t.album, 120, 'mini')}<div><b>${esc(t.歌名 || 'Track ' + t.曲序)}</b><span>${loading ? '載入中…' : esc((t.演唱人 || t.album.演唱人) + '・' + t.album.專輯名稱)}</span></div>`;
+    $('#playBtn').innerHTML = loading ? '<span class="spinner"></span>' : icon(au.paused ? 'play' : 'pause', 24);
+    $('#shufBtn').classList.toggle('on', shuffle);
+    $('#repBtn').classList.toggle('on', !!repeat);
+    $('#repBtn').title = repeat === 'one' ? '單曲重複' : repeat ? '全部重複' : '不重複';
+    $('#repBtn').innerHTML = repeat === 'one' ? icon('rep', 20) + '<small style="position:absolute;font-size:9px;font-weight:700">1</small>' : icon('rep', 20);
+  }
+  function setTimes(c, d) {
+    $('#curT').textContent = mmss(c); $('#durT').textContent = mmss(d);
+    if (!dragging) { const p = d ? c / d * 1000 : 0; $('#seek').value = p; paintRange($('#seek'), p / 10); }
+  }
+  function setMedia(t) {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({ title: t.歌名, artist: t.演唱人 || t.album.演唱人, album: t.album.專輯名稱, artwork: t.album.封面ID ? [{ src: coverUrl(t.album.封面ID, 512), sizes: '512x512', type: 'image/jpeg' }] : [] });
+  }
+  if ('mediaSession' in navigator) {
+    const h = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch (e) {} };
+    h('play', () => au.play()); h('pause', () => au.pause()); h('previoustrack', () => go(-1)); h('nexttrack', () => go(1));
+    h('seekto', d => { au.currentTime = d.seekTime; });
+  }
+  const dur = () => isFinite(au.duration) && au.duration > 1 ? au.duration : +(cur() || {}).秒數 || 0;
+  au.addEventListener('timeupdate', () => { if (!loading && cur()) setTimes(au.currentTime, dur()); });
+  au.addEventListener('ended', () => { if (!loading && !au.src.startsWith('data:')) go(1, true); });
+  au.addEventListener('play', () => { if (!loading) paint(); });
+  au.addEventListener('pause', () => { if (!loading) paint(); });
+  $('#seek').addEventListener('input', e => { dragging = true; paintRange(e.target, e.target.value / 10); $('#curT').textContent = mmss(dur() * e.target.value / 1000); });
+  $('#seek').addEventListener('change', e => { dragging = false; if (!loading) au.currentTime = dur() * e.target.value / 1000; });
+  $('#vol').addEventListener('input', e => { au.volume = e.target.value / 100; paintRange(e.target, e.target.value); LS.set('vol', e.target.value); });
+  $('#quality').onchange = e => {
+    quality = e.target.value; LS.set('quality', quality);
+    if (!cur()) return;
+    const at = au.currentTime, my = seq + 1;
+    start().then(() => { if (seq === my && at > 1) au.currentTime = at; });
+  };
+  $('#prevBtn').innerHTML = icon('prev'); $('#nextBtn').innerHTML = icon('next'); $('#shufBtn').innerHTML = icon('shuf', 20); $('#repBtn').innerHTML = icon('rep', 20);
+  $('#prevBtn').onclick = () => go(-1); $('#nextBtn').onclick = () => go(1); $('#playBtn').onclick = toggle;
+  $('#shufBtn').onclick = () => { const t = order[pos]; shuffle = !shuffle; LS.set('shuf', shuffle ? '1' : '0'); if (queue.length) makeOrder(t); paint(); };
+  $('#repBtn').onclick = () => { repeat = repeat === '' ? 'all' : repeat === 'all' ? 'one' : ''; LS.set('rep', repeat); paint(); toast($('#repBtn').title); };
+  $('#now').onclick = () => { const t = cur(); if (t) openAlbum(S.byId[t.專輯ID] || t.album); };
+  return { play, toggle, stop, cur };
+})();
+
+/* ---------------- 啟動 ---------------- */
+// GitHub Pages 會快取 10 分鐘：有新版就自動重新載入（播放中或填寫中不打斷）
+(function () {
+  const ver = h => (/config\.js\?v=([\w-]+)/.exec(h) || [])[1], mine = ver(document.head.innerHTML);
+  let last = 0;
+  async function check() {
+    if (!mine || document.hidden || Date.now() - last < 60000) return;
+    last = Date.now();
+    try {
+      const res = await fetch(location.pathname, { cache: 'no-cache' }), now = res.ok && ver(await res.text());
+      if (!now || now === mine || P.cur() || !$('#modal').classList.contains('hidden') || sessionStorage.getItem('cdl_ver') === now) return;
+      sessionStorage.setItem('cdl_ver', now); location.reload();
+    } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', check); setTimeout(check, 0);
+})();
+if (S.token && CFG.API_URL) {
+  $('#app').classList.remove('hidden'); $('#content').innerHTML = '<div class="empty"><span class="spinner"></span> 載入中…</div>';
+  load().catch(e => { if (e.code !== 'AUTH') { $('#content').innerHTML = `<div class="empty">${esc(e.message)}</div>`; } });
+} else showLogin();
+})();
+</script>
+</body>
+</html>
