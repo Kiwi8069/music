@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#15171a" media="(prefers-color-scheme:dark)">
 <title>CD 音樂庫</title>
 <!-- 每次更新網站都要換 v= 後面的版本，瀏覽器才不會用到舊檔 -->
-<script src="config.js?v=20261123-1"></script>
+<script src="config.js?v=20261123-2"></script>
 <style>
 :root{
   --bg:#f3f1ec;--panel:#fff;--text:#1c1d20;--muted:#6d6c68;--line:#dedbd3;--soft:#e9e6de;--accent:#b4371f;--on-accent:#fff;--danger:#b3261e;
@@ -462,6 +462,7 @@ function openAlbum(a) {
     ${S.user.canPlay ? `<div class="acts"><button class="btn primary" id="plAll">播放</button><button class="btn" id="plShuf">隨機播放</button></div>` : '<p class="ver">這個帳號只能瀏覽，不能播放</p>'}
     <ol class="tracks">${a.tracks.map((t, i) => `<li data-n="${i}" data-key="${esc(key(t))}" title="${esc(t.驗證)}"><span class="no">${esc(t.曲序)}</span><div><div class="nm">${esc(t.歌名 || 'Track ' + t.曲序)}</div><div class="cr">${esc(credits(t))}</div></div><span class="du">${mmss(t.秒數)}</span>${S.user.canEdit ? `<button class="btn" data-ed="${i}" style="padding:1px 8px;font-size:12px">編輯</button>` : '<span></span>'}</li>`).join('')}</ol></div></div>`);
   mark();
+  if (S.user.canPlay && a.tracks[0]) Files.open(a.tracks[0], 'mp3');      // 先抓第一首的開頭，按播放就能馬上開始
   $('#byBtn').onclick = () => { S.artist = a.演唱人; S.tab = 'albums'; closeModal(); reset(); };
   if ($('#plAll')) { $('#plAll').onclick = () => P.play(a.tracks, 0); $('#plShuf').onclick = () => P.play(a.tracks, -1); }
   $('.tracks').onclick = e => {
@@ -491,45 +492,67 @@ function editForm(title, fields, obj, save, back) {
 
 /* ---------------- 音樂檔下載（分段讀取，最近幾首留在記憶體） ---------------- */
 const Files = (function () {
-  const CH = 2 * 1024 * 1024, cache = new Map(), KEEP = 5;
+  const HEAD = 256 * 1024, KEEP = 6, cache = new Map();
+  let pinned = [];      // 正在播的和下一首，不會被淘汰
   function b64(s) { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
-  async function part(id, start, signal) {
+  async function part(id, start, length, signal) {
     for (let n = 0; ; n++) {
-      try { const r = await api('chunk', { id, start, length: CH }, signal); return { total: r.total, data: b64(r.data) }; }
+      try { const r = await api('chunk', { id, start, length }, signal); return { total: r.total, data: b64(r.data) }; }
       catch (e) { if (n >= 2 || e.name === 'AbortError' || e.code === 'AUTH') throw e; await new Promise(r => setTimeout(r, 700 * (n + 1))); }
     }
   }
-  async function download(id, size, type, onp, signal) {
-    const n = Math.max(1, Math.ceil(size / CH)), parts = new Array(n);
-    let next = 0, done = 0, total = size;
-    async function worker() {
-      while (next < n) { const i = next++; const r = await part(id, i * CH, signal); parts[i] = r.data; total = r.total; onp(++done / n); }
+  // 每個檔案：parts[i] 是第 i 段的 Promise（依序排好，播放器可以邊載邊播），full 是整首的網址
+  function open(t, q) {
+    const flac = q === 'flac' && !!t.FLAC檔ID, id = flac ? t.FLAC檔ID : t.MP3檔ID;
+    if (!id) return null;
+    let c = cache.get(id);
+    if (!c) {
+      const size = +(flac ? t.FLAC大小 : t.MP3大小) || HEAD;
+      c = { id, track: t, size, type: flac ? 'audio/flac' : 'audio/mpeg', ctl: new AbortController(), subs: new Set(), pct: 0, url: '', parts: [], total: size };
+      c.head = part(id, 0, HEAD, c.ctl.signal).then(r => { c.total = r.total; return r.data; });
+      c.head.catch(() => { if (cache.get(id) === c) cache.delete(id); });
     }
-    await Promise.all(Array.from({ length: Math.min(4, n) }, worker));
-    // 檔案比登記的大（重新寫過標籤）時把剩下的補齊
-    let got = parts.reduce((s, p) => s + p.length, 0);
-    while (got < total) { const r = await part(id, got, signal); if (!r.data.length) break; parts.push(r.data); got += r.data.length; }
-    if (got !== total) throw new Error('音樂檔下載不完整');
-    return new Blob(parts, { type });
+    cache.delete(id); cache.set(id, c);      // 移到最新
+    for (const o of [...cache.values()]) { if (cache.size <= KEEP) break; if (o !== c && !pinned.includes(o.track)) drop(o.id); }
+    return c;
+  }
+  function drop(id) { const o = cache.get(id); cache.delete(id); o.ctl.abort(); if (o.url) setTimeout(() => URL.revokeObjectURL(o.url), 60000); }
+  function load(c) {
+    if (c.full) return c.full;
+    const CH = c.type === 'audio/flac' ? 1.5 * 1024 * 1024 : 640 * 1024, jobs = [];
+    for (let at = HEAD; at < c.size; at += CH) {
+      const j = { at, len: Math.min(CH, c.size - at) };
+      j.p = new Promise((ok, no) => { j.ok = ok; j.no = no; });
+      j.p.catch(() => {});
+      jobs.push(j);
+    }
+    c.parts = [c.head].concat(jobs.map(j => j.p));
+    let next = 0, done = 0;
+    async function worker() {
+      while (next < jobs.length) {
+        const j = jobs[next++];
+        try { j.ok((await part(c.id, j.at, j.len, c.ctl.signal)).data); }
+        catch (e) { next = jobs.length; jobs.forEach(x => x.no(e)); throw e; }
+        c.pct = ++done / jobs.length; c.subs.forEach(f => f(c.pct));
+      }
+    }
+    c.full = (async () => {
+      await Promise.all([c.head].concat(Array.from({ length: Math.min(8, jobs.length) }, worker)));
+      const bufs = await Promise.all(c.parts);
+      let got = bufs.reduce((n, b) => n + b.length, 0);
+      // 檔案比登記的大（重新寫過標籤）時把剩下的補齊
+      while (got < c.total) { const r = await part(c.id, got, 1024 * 1024, c.ctl.signal); if (!r.data.length) break; bufs.push(r.data); got += r.data.length; }
+      if (got !== c.total) throw new Error('音樂檔下載不完整');
+      return (c.url = URL.createObjectURL(new Blob(bufs, { type: c.type })));
+    })();
+    c.full.catch(() => { if (cache.get(c.id) === c) cache.delete(c.id); });
+    return c.full;
   }
   return {
-    get(t, q, onp) {
-      const id = q === 'flac' ? t.FLAC檔ID || t.MP3檔ID : t.MP3檔ID || t.FLAC檔ID;
-      if (!id) return Promise.reject(new Error('這首的音樂檔還在上傳到雲端，請稍後按「同步」'));
-      const flac = id === t.FLAC檔ID;
-      let c = cache.get(id);
-      if (!c) {
-        c = { ctl: new AbortController(), subs: new Set(), pct: 0 };
-        c.p = download(id, +(flac ? t.FLAC大小 : t.MP3大小) || CH, flac ? 'audio/flac' : 'audio/mpeg', f => { c.pct = f; c.subs.forEach(s => s(f)); }, c.ctl.signal)
-          .then(b => (c.url = URL.createObjectURL(b)));
-        c.p.catch(() => { if (cache.get(id) === c) cache.delete(id); });
-      }
-      cache.delete(id); cache.set(id, c);      // 移到最新
-      while (cache.size > KEEP) { const k = cache.keys().next().value, o = cache.get(k); cache.delete(k); o.ctl.abort(); if (o.url) URL.revokeObjectURL(o.url); }
-      if (onp) { c.subs.add(onp); if (c.pct) onp(c.pct); }
-      return c.p;
-    },
-    clear() { cache.forEach(o => { o.ctl.abort(); if (o.url) URL.revokeObjectURL(o.url); }); cache.clear(); }
+    open, load,
+    // 換歌時停掉不需要的下載
+    prune(keep) { pinned = keep; [...cache.values()].forEach(c => { if (!c.url && !keep.includes(c.track)) drop(c.id); }); },
+    clear() { [...cache.keys()].forEach(drop); }
   };
 })();
 
@@ -538,7 +561,8 @@ const Files = (function () {
 const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 const P = (function () {
   const au = $('#audio');
-  let queue = [], pos = -1, order = [], shuffle = LS.get('shuf') === '1', repeat = LS.get('rep') || '', seq = 0, loading = false, dragging = false, fails = 0;
+  let queue = [], pos = -1, order = [], shuffle = LS.get('shuf') === '1', repeat = LS.get('rep') || '', seq = 0, loading = false, dragging = false, fails = 0, note = '', swapping = false;
+  const canStream = !!window.MediaSource && MediaSource.isTypeSupported('audio/mpeg');
   let quality = LS.get('quality') || 'mp3';
   $('#quality').value = quality;
   au.volume = (LS.get('vol') === null ? 90 : +LS.get('vol')) / 100;
@@ -565,26 +589,93 @@ const P = (function () {
   }
   async function start() {
     const t = cur(); if (!t) return;
-    const my = ++seq; loading = true;
+    const my = ++seq, live = () => my === seq; loading = true; note = '';
     $('#player').classList.remove('hidden'); document.body.classList.add('has-player');
-    paint(); mark(); setMedia(t);
-    setTimes(0, +t.秒數);
+    paint(); mark(); setMedia(t); setTimes(0, +t.秒數);
+    const nx = queue[order[pos + 1]];
+    Files.prune([t, nx]);
     try {
-      const url = await Files.get(t, quality, f => { if (my === seq && loading) $('#now span').textContent = `載入中 ${Math.round(f * 100)}%`; });
-      if (my !== seq) return;
-      loading = false; au.src = url;
-      await au.play();
-      fails = 0; paint();
-      const n = queue[order[pos + 1]];
-      if (n && n !== t) Files.get(n, quality).catch(() => {});     // 先載下一首
+      const want = Files.open(t, quality);
+      const c = want && want.url ? want : Files.open(t, 'mp3') || want || Files.open(t, 'flac');
+      if (!c) throw new Error('這首的音樂檔還在上傳到雲端，請稍後按「同步」');
+      if (c.url) { au.src = c.url; await au.play(); }
+      else if (c.type === 'audio/mpeg' && canStream) await stream(c, t, live);
+      else {
+        const f = p => { if (live() && loading) $('#now span').textContent = `載入中 ${Math.round(p * 100)}%`; };
+        c.subs.add(f);
+        const url = await Files.load(c);
+        if (!live()) return;
+        au.src = url; await au.play();
+      }
+      if (!live()) return;
+      loading = false; fails = 0; paint();
+      Files.load(c).then(() => { if (live()) { upgrade(); preload(nx, t, live); } }).catch(() => {});
     } catch (e) {
-      if (my !== seq || e.name === 'AbortError') return;
+      if (!live() || e.name === 'AbortError') return;
       loading = false; paint();
       if (e.name === 'NotAllowedError') return toast('請按一下播放鍵開始播放');
       if (e.code === 'AUTH') return;
       toast((t.歌名 || '') + '：' + e.message, 5000);
-      if (++fails < 3 && pos + 1 < order.length) setTimeout(() => { if (my === seq) go(1); }, 1500);
+      if (++fails < 3 && pos + 1 < order.length) setTimeout(() => { if (live()) go(1); }, 1500);
     }
+  }
+  // 邊載邊播：第一小段到了就開始，其餘依序接上
+  async function stream(c, t, live) {
+    Files.load(c);
+    const head = await c.head;
+    if (!live()) return;
+    const ms = new MediaSource(), url = URL.createObjectURL(ms);
+    const opened = new Promise(r => ms.addEventListener('sourceopen', r, { once: true }));
+    au.src = url;
+    await opened; URL.revokeObjectURL(url);
+    if (!live()) return;
+    const sb = ms.addSourceBuffer('audio/mpeg');
+    if (+t.秒數) ms.duration = +t.秒數;
+    const put = b => new Promise((ok, no) => {
+      sb.addEventListener('updateend', ok, { once: true }); sb.addEventListener('error', () => no(new Error('解碼失敗')), { once: true });
+      sb.appendBuffer(b);
+    });
+    await put(head);
+    if (!live()) return;
+    (async () => {
+      try {
+        for (const p of c.parts.slice(1)) { const b = await p; if (!live() || ms.readyState !== 'open') return; await put(b); }
+        if (live() && ms.readyState === 'open') ms.endOfStream();
+      } catch (e) {        // 緩衝區滿了（很長的曲子）或串流失敗：整首載好後改播完整檔
+        Files.load(c).then(u => { if (live() && au.src !== u && c.type === 'audio/mpeg' && au.src.startsWith('blob:')) swap(u, live); }).catch(() => { if (live()) toast('網路不穩，音樂沒有載完'); });
+      }
+    })();
+    await au.play();
+  }
+  async function swap(url, live) {
+    const at = au.currentTime, was = au.paused, ready = new Promise((r, no) => { au.addEventListener('loadedmetadata', r, { once: true }); au.addEventListener('error', no, { once: true }); });
+    swapping = true;
+    try {
+      au.src = url;
+      await ready;
+      if (!live()) return;
+      au.currentTime = at;
+      if (!was) await au.play();
+    } catch (e) {} finally { swapping = false; paint(); }
+  }
+  // 選無損音質時：先播 MP3，FLAC 載好後從同一位置切換
+  async function upgrade() {
+    const t = cur(), my = seq, live = () => my === seq && quality === 'flac';
+    if (!t || !live()) return;
+    const c = Files.open(t, 'flac');
+    if (!c || c.type !== 'audio/flac') return;
+    if (c.url && au.src === c.url) return;
+    const f = p => { if (live()) { note = `無損載入 ${Math.round(p * 100)}%`; paintSub(); } };
+    c.subs.add(f); f(c.pct);
+    try {
+      const url = await Files.load(c);
+      if (live() && au.src !== url) await swap(url, live);
+    } catch (e) {} finally { c.subs.delete(f); if (my === seq) { note = quality === 'flac' && c.url && au.src === c.url ? '無損' : ''; paintSub(); } }
+  }
+  function preload(n, t, live) {
+    if (!n || n === t) return;
+    const go2 = () => { if (live()) { const c = Files.open(n, quality); if (c) Files.load(c).catch(() => {}); if (quality === 'flac') Files.open(n, 'mp3'); } };
+    if (quality === 'flac') { const c = Files.open(t, 'flac'); (c ? Files.load(c) : Promise.resolve()).then(go2, () => {}); } else go2();
   }
   function go(d, auto) {
     if (!queue.length) return;
@@ -603,12 +694,16 @@ const P = (function () {
   function stop() { seq++; loading = false; au.pause(); au.removeAttribute('src'); queue = []; pos = -1; Files.clear(); $('#player').classList.add('hidden'); document.body.classList.remove('has-player'); }
   function paint() {
     const t = cur(); if (!t) return;
-    $('#now').innerHTML = `${art(t.album, 120, 'mini')}<div><b>${esc(t.歌名 || 'Track ' + t.曲序)}</b><span>${loading ? '載入中…' : esc((t.演唱人 || t.album.演唱人) + '・' + t.album.專輯名稱)}</span></div>`;
+    $('#now').innerHTML = `${art(t.album, 120, 'mini')}<div><b>${esc(t.歌名 || 'Track ' + t.曲序)}</b><span></span></div>`; paintSub();
     $('#playBtn').innerHTML = loading ? '<span class="spinner"></span>' : icon(au.paused ? 'play' : 'pause', 24);
     $('#shufBtn').classList.toggle('on', shuffle);
     $('#repBtn').classList.toggle('on', !!repeat);
     $('#repBtn').title = repeat === 'one' ? '單曲重複' : repeat ? '全部重複' : '不重複';
     $('#repBtn').innerHTML = repeat === 'one' ? icon('rep', 20) + '<small style="position:absolute;font-size:9px;font-weight:700">1</small>' : icon('rep', 20);
+  }
+  function paintSub() {
+    const t = cur(), e = $('#now span'); if (!t || !e) return;
+    e.textContent = loading ? '載入中…' : (note ? note + '・' : '') + (t.演唱人 || t.album.演唱人) + '・' + t.album.專輯名稱;
   }
   function setTimes(c, d) {
     $('#curT').textContent = mmss(c); $('#durT').textContent = mmss(d);
@@ -624,18 +719,17 @@ const P = (function () {
     h('seekto', d => { au.currentTime = d.seekTime; });
   }
   const dur = () => isFinite(au.duration) && au.duration > 1 ? au.duration : +(cur() || {}).秒數 || 0;
-  au.addEventListener('timeupdate', () => { if (!loading && cur()) setTimes(au.currentTime, dur()); });
-  au.addEventListener('ended', () => { if (!loading && !au.src.startsWith('data:')) go(1, true); });
-  au.addEventListener('play', () => { if (!loading) paint(); });
-  au.addEventListener('pause', () => { if (!loading) paint(); });
+  au.addEventListener('timeupdate', () => { if (!loading && !swapping && cur()) setTimes(au.currentTime, dur()); });
+  au.addEventListener('ended', () => { if (!loading && !swapping && !au.src.startsWith('data:')) go(1, true); });
+  au.addEventListener('play', () => { if (!loading && !swapping) paint(); });
+  au.addEventListener('pause', () => { if (!loading && !swapping) paint(); });
   $('#seek').addEventListener('input', e => { dragging = true; paintRange(e.target, e.target.value / 10); $('#curT').textContent = mmss(dur() * e.target.value / 1000); });
   $('#seek').addEventListener('change', e => { dragging = false; if (!loading) au.currentTime = dur() * e.target.value / 1000; });
   $('#vol').addEventListener('input', e => { au.volume = e.target.value / 100; paintRange(e.target, e.target.value); LS.set('vol', e.target.value); });
   $('#quality').onchange = e => {
     quality = e.target.value; LS.set('quality', quality);
-    if (!cur()) return;
-    const at = au.currentTime, my = seq + 1;
-    start().then(() => { if (seq === my && at > 1) au.currentTime = at; });
+    if (!cur() || loading) return;
+    if (quality === 'flac') upgrade(); else { note = ''; paintSub(); toast('下一首開始用 MP3'); }
   };
   $('#prevBtn').innerHTML = icon('prev'); $('#nextBtn').innerHTML = icon('next'); $('#shufBtn').innerHTML = icon('shuf', 20); $('#repBtn').innerHTML = icon('rep', 20);
   $('#prevBtn').onclick = () => go(-1); $('#nextBtn').onclick = () => go(1); $('#playBtn').onclick = toggle;
