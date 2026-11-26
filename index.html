@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#15171a" media="(prefers-color-scheme:dark)">
 <title>CD 音樂庫</title>
 <!-- 每次更新網站都要換 v= 後面的版本，瀏覽器才不會用到舊檔 -->
-<script src="config.js?v=20261123-2"></script>
+<script src="config.js?v=20261126-1"></script>
 <style>
 :root{
   --bg:#f3f1ec;--panel:#fff;--text:#1c1d20;--muted:#6d6c68;--line:#dedbd3;--soft:#e9e6de;--accent:#b4371f;--on-accent:#fff;--danger:#b3261e;
@@ -321,6 +321,7 @@ $('#loginForm').addEventListener('submit', async e => {
 function logout(expired) {
   if (!expired && S.token) api('logout').catch(() => {});
   S.token = null; S.albums = []; S.tracks = []; LS.del('token');
+  if (!expired) Files.forget();
   P.stop(); closeModal(); showLogin(expired ? '登入已過期，請重新登入' : '');
 }
 $('#logoutBtn').onclick = () => logout(false);
@@ -462,7 +463,7 @@ function openAlbum(a) {
     ${S.user.canPlay ? `<div class="acts"><button class="btn primary" id="plAll">播放</button><button class="btn" id="plShuf">隨機播放</button></div>` : '<p class="ver">這個帳號只能瀏覽，不能播放</p>'}
     <ol class="tracks">${a.tracks.map((t, i) => `<li data-n="${i}" data-key="${esc(key(t))}" title="${esc(t.驗證)}"><span class="no">${esc(t.曲序)}</span><div><div class="nm">${esc(t.歌名 || 'Track ' + t.曲序)}</div><div class="cr">${esc(credits(t))}</div></div><span class="du">${mmss(t.秒數)}</span>${S.user.canEdit ? `<button class="btn" data-ed="${i}" style="padding:1px 8px;font-size:12px">編輯</button>` : '<span></span>'}</li>`).join('')}</ol></div></div>`);
   mark();
-  if (S.user.canPlay && a.tracks[0]) Files.open(a.tracks[0], 'mp3');      // 先抓第一首的開頭，按播放就能馬上開始
+  if (S.user.canPlay) Files.warm(a.tracks.slice(0, 30));      // 先抓每首的開頭，點哪一首都能馬上開始
   $('#byBtn').onclick = () => { S.artist = a.演唱人; S.tab = 'albums'; closeModal(); reset(); };
   if ($('#plAll')) { $('#plAll').onclick = () => P.play(a.tracks, 0); $('#plShuf').onclick = () => P.play(a.tracks, -1); }
   $('.tracks').onclick = e => {
@@ -492,7 +493,9 @@ function editForm(title, fields, obj, save, back) {
 
 /* ---------------- 音樂檔下載（分段讀取，最近幾首留在記憶體） ---------------- */
 const Files = (function () {
-  const HEAD = 256 * 1024, KEEP = 6, cache = new Map();
+  const HEAD = 256 * 1024, KEEP = 6, HEADS = 40, cache = new Map();
+  const STORE = 'cdl-audio', LIMIT = 1500 * 1024 * 1024;      // 聽過的歌留在這台電腦（最多 1.5 GB），再聽不用重新下載
+  const keyOf = c => location.origin + '/__audio/' + c.id + '_' + c.size;
   let pinned = [];      // 正在播的和下一首，不會被淘汰
   function b64(s) { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
   async function part(id, start, length, signal) {
@@ -500,6 +503,25 @@ const Files = (function () {
       try { const r = await api('chunk', { id, start, length }, signal); return { total: r.total, data: b64(r.data) }; }
       catch (e) { if (n >= 2 || e.name === 'AbortError' || e.code === 'AUTH') throw e; await new Promise(r => setTimeout(r, 700 * (n + 1))); }
     }
+  }
+  // 本機保存
+  const box = () => window.caches ? caches.open(STORE) : Promise.reject(new Error('no cache'));
+  async function stored(c) {
+    try { const res = await (await box()).match(keyOf(c)); return res ? await res.blob() : null; } catch (e) { return null; }
+  }
+  async function keep(c, blob) {
+    try {
+      const idx = JSON.parse(LS.get('audio') || '[]').filter(x => x.k !== keyOf(c));
+      idx.push({ k: keyOf(c), n: blob.size });
+      const cb = await box();
+      let sum = idx.reduce((n, x) => n + x.n, 0);
+      while (sum > LIMIT && idx.length > 1) { const o = idx.shift(); sum -= o.n; await cb.delete(o.k); }
+      await cb.put(keyOf(c), new Response(blob, { headers: { 'Content-Type': c.type } }));
+      LS.set('audio', JSON.stringify(idx));
+    } catch (e) {}
+  }
+  function touch(c) {      // 最近聽的排到最後，最晚被清掉
+    try { const idx = JSON.parse(LS.get('audio') || '[]'), i = idx.findIndex(x => x.k === keyOf(c)); if (i >= 0) { idx.push(idx.splice(i, 1)[0]); LS.set('audio', JSON.stringify(idx)); } } catch (e) {}
   }
   // 每個檔案：parts[i] 是第 i 段的 Promise（依序排好，播放器可以邊載邊播），full 是整首的網址
   function open(t, q) {
@@ -509,16 +531,28 @@ const Files = (function () {
     if (!c) {
       const size = +(flac ? t.FLAC大小 : t.MP3大小) || HEAD;
       c = { id, track: t, size, type: flac ? 'audio/flac' : 'audio/mpeg', ctl: new AbortController(), subs: new Set(), pct: 0, url: '', parts: [], total: size };
-      c.head = part(id, 0, HEAD, c.ctl.signal).then(r => { c.total = r.total; return r.data; });
-      c.head.catch(() => { if (cache.get(id) === c) cache.delete(id); });
+      c.ready = stored(c).then(blob => {
+        if (blob && blob.size === c.size) {
+          c.url = URL.createObjectURL(blob); c.full = Promise.resolve(c.url); c.pct = 1; touch(c);
+          c.head = blob.slice(0, HEAD).arrayBuffer().then(x => new Uint8Array(x));
+        } else c.head = part(id, 0, HEAD, c.ctl.signal).then(r => { c.total = r.total; return r.data; });
+        c.head.catch(() => { if (cache.get(id) === c) cache.delete(id); });
+        return c;
+      });
     }
     cache.delete(id); cache.set(id, c);      // 移到最新
-    for (const o of [...cache.values()]) { if (cache.size <= KEEP) break; if (o !== c && !pinned.includes(o.track)) drop(o.id); }
+    // 整首的最多留 KEEP 個，只有開頭的最多 HEADS 個
+    let full = 0, heads = 0;
+    for (const o of [...cache.values()].reverse()) {
+      if (o === c || pinned.includes(o.track)) continue;
+      if (o.full ? ++full > KEEP : ++heads > HEADS) drop(o.id);
+    }
     return c;
   }
   function drop(id) { const o = cache.get(id); cache.delete(id); o.ctl.abort(); if (o.url) setTimeout(() => URL.revokeObjectURL(o.url), 60000); }
   function load(c) {
     if (c.full) return c.full;
+    if (!c.head) return c.ready.then(() => load(c));
     const CH = c.type === 'audio/flac' ? 1.5 * 1024 * 1024 : 640 * 1024, jobs = [];
     for (let at = HEAD; at < c.size; at += CH) {
       const j = { at, len: Math.min(CH, c.size - at) };
@@ -543,16 +577,26 @@ const Files = (function () {
       // 檔案比登記的大（重新寫過標籤）時把剩下的補齊
       while (got < c.total) { const r = await part(c.id, got, 1024 * 1024, c.ctl.signal); if (!r.data.length) break; bufs.push(r.data); got += r.data.length; }
       if (got !== c.total) throw new Error('音樂檔下載不完整');
-      return (c.url = URL.createObjectURL(new Blob(bufs, { type: c.type })));
+      const blob = new Blob(bufs, { type: c.type });
+      if (blob.size === c.size) keep(c, blob);
+      return (c.url = URL.createObjectURL(blob));
     })();
     c.full.catch(() => { if (cache.get(c.id) === c) cache.delete(c.id); });
     return c.full;
   }
   return {
     open, load,
+    ready: c => c.ready,
+    // 打開專輯時，一次預先抓每首的開頭（每次 6 個），點哪一首都能馬上播
+    warm(list) {
+      let i = 0;
+      const one = async () => { while (i < list.length) { const c = open(list[i++], 'mp3'); if (c) { await c.ready; await c.head.catch(() => {}); } } };
+      for (let k = 0; k < 6; k++) one();
+    },
     // 換歌時停掉不需要的下載
-    prune(keep) { pinned = keep; [...cache.values()].forEach(c => { if (!c.url && !keep.includes(c.track)) drop(c.id); }); },
-    clear() { [...cache.keys()].forEach(drop); }
+    prune(keep) { pinned = keep; [...cache.values()].forEach(c => { if (!c.url && c.full && !keep.includes(c.track)) drop(c.id); }); },
+    clear() { [...cache.keys()].forEach(drop); },
+    forget() { if (window.caches) caches.delete(STORE).catch(() => {}); LS.del('audio'); }
   };
 })();
 
@@ -596,8 +640,12 @@ const P = (function () {
     Files.prune([t, nx]);
     try {
       const want = Files.open(t, quality);
+      if (want) await Files.ready(want);
+      if (!live()) return;
       const c = want && want.url ? want : Files.open(t, 'mp3') || want || Files.open(t, 'flac');
       if (!c) throw new Error('這首的音樂檔還在上傳到雲端，請稍後按「同步」');
+      await Files.ready(c);
+      if (!live()) return;
       if (c.url) { au.src = c.url; await au.play(); }
       else if (c.type === 'audio/mpeg' && canStream) await stream(c, t, live);
       else {
